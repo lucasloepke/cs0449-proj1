@@ -163,12 +163,137 @@ void reveal(const char *filename) {
         // skip padding bytes at the end of row
         if (padding > 0) fseek(file, padding, SEEK_CUR);
     }
-    
+
     fclose(file);
 }
 
 void hide(const char *filename1, const char *filename2) {
+    FILE *file1 = fopen(filename1, "rb+");  // read and write binary
+    FILE *file2 = fopen(filename2, "rb");   // read binary
+    if (file1 == NULL || file2 == NULL) {
+        printf("ERROR: File not found.\n");
+        if (file1) fclose(file1);
+        if (file2) fclose(file2);
+        return;
+    }
 
+    BMPHeader bmpHeader1, bmpHeader2;
+    DIBHeader dibHeader1, dibHeader2;
+
+    // read BMP1 header
+    if (fread(&bmpHeader1, sizeof(BMPHeader), 1, file1) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+    // verify BMP1 file
+    if (bmpHeader1.type != 0x4D42) { // ASCII BM reversed for little endian
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+
+    // read DIB1 header
+    if (fread(&dibHeader1, sizeof(DIBHeader), 1, file1) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+    // verify DIB1 header size and RGB bits per pixel
+    if (dibHeader1.headerSize != 40 || dibHeader1.bitCount != 24) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+
+    // read BMP2 header
+    if (fread(&bmpHeader2, sizeof(BMPHeader), 1, file2) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+    // verify BMP2 file
+    if (bmpHeader2.type != 0x4D42) { // ASCII BM reversed for little endian
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+
+    // read DIB2 header
+    if (fread(&dibHeader2, sizeof(DIBHeader), 1, file2) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+    // verify DIB2 header size and RGB bits per pixel
+    if (dibHeader2.headerSize != 40 || dibHeader2.bitCount != 24) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+
+    // ensure dimensions match
+    if (dibHeader1.width != dibHeader2.width || dibHeader1.height != dibHeader2.height) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file1);
+        fclose(file2);
+        return;
+    }
+
+    // move to start of pixel data
+    fseek(file1, bmpHeader1.offset, SEEK_SET);
+    fseek(file2, bmpHeader2.offset, SEEK_SET);
+
+    // calculate padding bytes per row as a multiple of 4
+    int padding = (4 - ((dibHeader1.width * sizeof(Pixel)) % 4)) % 4;
+
+    for (int y = 0; y < abs(dibHeader1.height); y++) {   // row
+        for (int x = 0; x < dibHeader1.width; x++) {     // pixel
+            Pixel pixel1, pixel2;
+            
+            // read pixels from both files
+            if (fread(&pixel1, sizeof(Pixel), 1, file1) != 1 || 
+                fread(&pixel2, sizeof(Pixel), 1, file2) != 1) {
+                printf("ERROR: The format is not supported.\n");
+                fclose(file1);
+                fclose(file2);
+                return;
+            }
+
+            // move back to write position in file1
+            fseek(file1, -sizeof(Pixel), SEEK_CUR);
+
+            // merge pixels: keep 4 MSB of pixel1, set LSB to 4 MSB of pixel2
+            pixel1.blue = (pixel1.blue & 0xF0) | ((pixel2.blue & 0xF0) >> 4);
+            pixel1.green = (pixel1.green & 0xF0) | ((pixel2.green & 0xF0) >> 4);
+            pixel1.red = (pixel1.red & 0xF0) | ((pixel2.red & 0xF0) >> 4);
+
+            // write merged pixel back to file1
+            if (fwrite(&pixel1, sizeof(Pixel), 1, file1) != 1) {
+                printf("ERROR: The format is not supported.\n");
+                fclose(file1);
+                fclose(file2);
+                return;
+            }
+        }
+
+        // skip padding bytes at the end of row in both files
+        if (padding > 0) {
+            fseek(file1, padding, SEEK_CUR);
+            fseek(file2, padding, SEEK_CUR);
+        }
+    }
+    
+    fclose(file1);
+    fclose(file2);
 }
 
 int main(int argc, char *argv[]) {
