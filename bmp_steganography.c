@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #pragma pack(1)
 typedef struct {
@@ -32,7 +33,7 @@ typedef struct {
 #pragma pack(4)
 
 void info(const char *filename) {
-    FILE *file = fopen(filename, "rb");
+    FILE *file = fopen(filename, "rb"); // read binary
     if (file == NULL) {
         printf("ERROR: File not found.\n");
         return;
@@ -41,28 +42,26 @@ void info(const char *filename) {
     BMPHeader bmpHeader;
     DIBHeader dibHeader;
 
-    // Read BMP header
+    // read BMP header
     if (fread(&bmpHeader, sizeof(BMPHeader), 1, file) != 1) {
         printf("ERROR: The format is not supported.\n");
         fclose(file);
         return;
     }
-
-    // Check for BMP file
-    if (bmpHeader.type != 0x4D42) { // BM in ASCII, reversed for little endian
+    // verify BMP file
+    if (bmpHeader.type != 0x4D42) { // ASCII BM reversed for little endian
         printf("ERROR: The format is not supported.\n");
         fclose(file);
         return;
     }
 
-    // Read DIB header
+    // read DIB header
     if (fread(&dibHeader, sizeof(DIBHeader), 1, file) != 1) {
         printf("ERROR: The format is not supported.\n");
         fclose(file);
         return;
     }
-
-    // Check DIB header size and RGB bits per pixel
+    // verify DIB header size and RGB bits per pixel
     if (dibHeader.headerSize != 40 || dibHeader.bitCount != 24) {
         printf("ERROR: The format is not supported.\n");
         fclose(file);
@@ -93,7 +92,79 @@ void info(const char *filename) {
 }
 
 void reveal(const char *filename) {
+    FILE *file = fopen(filename, "rb+"); // read and write binary
+    if (file == NULL) {
+        printf("ERROR: File not found.\n");
+        return;
+    }
 
+    BMPHeader bmpHeader;
+    DIBHeader dibHeader;
+
+    // read BMP header
+    if (fread(&bmpHeader, sizeof(BMPHeader), 1, file) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file);
+        return;
+    }
+    // verify BMP file
+    if (bmpHeader.type != 0x4D42) { // ASCII BM reversed for little endian
+        printf("ERROR: The format is not supported.\n");
+        fclose(file);
+        return;
+    }
+
+    // read DIB header
+    if (fread(&dibHeader, sizeof(DIBHeader), 1, file) != 1) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file);
+        return;
+    }
+    // verify DIB header size and RGB bits per pixel
+    if (dibHeader.headerSize != 40 || dibHeader.bitCount != 24) {
+        printf("ERROR: The format is not supported.\n");
+        fclose(file);
+        return;
+    }
+
+    // move to start of pixel data
+    fseek(file, bmpHeader.offset, SEEK_SET);
+
+    // calculate padding bytes per row as a multiple of 4
+    int padding = (4 - ((dibHeader.width * sizeof(Pixel)) % 4)) % 4;
+
+    for (int y = 0; y < abs(dibHeader.height); y++) {   // row
+        for (int x = 0; x < dibHeader.width; x++) {     // pixel
+            Pixel pixel;
+            
+            // read pixel
+            if (fread(&pixel, sizeof(Pixel), 1, file) != 1) {
+                printf("ERROR: The format is not supported.\n");
+                fclose(file);
+                return;
+            }
+
+            // move back to same pixel position
+            fseek(file, -sizeof(Pixel), SEEK_CUR);
+
+            // swap 4 MSB with 4 LSB for each color component
+            pixel.blue = (pixel.blue << 4) | (pixel.blue >> 4);
+            pixel.green = (pixel.green << 4) | (pixel.green >> 4);
+            pixel.red = (pixel.red << 4) | (pixel.red >> 4);
+
+            // write back modified pixels
+            if (fwrite(&pixel, sizeof(Pixel), 1, file) != 1) {
+                printf("ERROR: The format is not supported.\n");
+                fclose(file);
+                return;
+            }
+        }
+
+        // skip padding bytes at the end of row
+        if (padding > 0) fseek(file, padding, SEEK_CUR);
+    }
+    
+    fclose(file);
 }
 
 void hide(const char *filename1, const char *filename2) {
